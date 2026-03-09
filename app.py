@@ -53,7 +53,7 @@ try:
     model = tf.keras.models.load_model("model/sign_model_final.h5")
     print("Model loaded successfully!")
 except:
-    model = tf.keras.models.load_model("model/sign_model.h5")
+    model = tf.keras.models.load_model("model/sign_model_final.h5")
     print("Loaded original model (consider retraining for better accuracy)")
 
 # Labels - update if you have 29 classes
@@ -144,3 +144,4 @@ def health():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
