@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Sign Language Recognition</title>
+
+<!-- MediaPipe -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+
+<style>
+
+*{
+margin:0;
+padding:0;
+box-sizing:border-box;
+}
+
+body{
+font-family:Segoe UI;
+background:linear-gradient(135deg,#667eea,#764ba2);
+min-height:100vh;
+display:flex;
+justify-content:center;
+align-items:center;
+padding:20px;
+}
+
+.container{
+background:white;
+border-radius:20px;
+padding:40px;
+box-shadow:0 20px 60px rgba(0,0,0,0.3);
+max-width:900px;
+width:100%;
+}
+
+h1{
+text-align:center;
+margin-bottom:10px;
+}
+
+.subtitle{
+text-align:center;
+color:#666;
+margin-bottom:30px;
+}
+
+.upload-area{
+border:3px dashed #667eea;
+border-radius:15px;
+padding:40px;
+text-align:center;
+cursor:pointer;
+background:#f8f9ff;
+}
+
+.upload-area:hover{
+background:#f0f3ff;
+}
+
+.upload-area input{
+display:none;
+}
+
+#preview{
+max-width:100%;
+max-height:300px;
+margin-top:20px;
+border-radius:10px;
+display:none;
+}
+
+.button{
+background:linear-gradient(135deg,#667eea,#764ba2);
+color:white;
+border:none;
+padding:15px 30px;
+border-radius:10px;
+font-size:18px;
+cursor:pointer;
+margin-top:15px;
+width:100%;
+}
+
+.button:hover{
+opacity:0.9;
+}
+
+.video-container{
+position:relative;
+width:100%;
+}
+
+video{
+width:100%;
+border-radius:10px;
+}
+
+#output_canvas{
+position:absolute;
+top:0;
+left:0;
+width:100%;
+height:100%;
+}
+
+.result-container{
+margin-top:25px;
+display:none;
+}
+
+.prediction{
+font-size:60px;
+font-weight:bold;
+color:#667eea;
+}
+
+.confidence{
+font-size:18px;
+color:#555;
+}
+
+.top-3{
+margin-top:20px;
+display:grid;
+grid-template-columns:repeat(3,1fr);
+gap:10px;
+}
+
+.top-item{
+background:#f5f6ff;
+padding:10px;
+border-radius:10px;
+}
+
+.loader{
+border:4px solid #eee;
+border-top:4px solid #667eea;
+border-radius:50%;
+width:40px;
+height:40px;
+animation:spin 1s linear infinite;
+margin:20px auto;
+display:none;
+}
+
+@keyframes spin{
+0%{transform:rotate(0deg)}
+100%{transform:rotate(360deg)}
+}
+
+.error{
+color:red;
+text-align:center;
+margin-top:10px;
+display:none;
+}
+
+/* Sentence Builder */
+
+.sentence-box{
+margin-top:20px;
+font-size:28px;
+border:2px solid #667eea;
+padding:15px;
+border-radius:10px;
+min-height:40px;
+}
+
+.controls{
+margin-top:10px;
+display:flex;
+gap:10px;
+}
+
+.controls button{
+flex:1;
+padding:10px;
+border:none;
+border-radius:8px;
+background:#667eea;
+color:white;
+cursor:pointer;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<div class="container">
+
+<h1>✋ Sign Language Recognition</h1>
+<p class="subtitle">Upload image or use live camera</p>
+
+<div class="upload-area" id="uploadArea">
+<p>Click to Upload Image</p>
+<input type="file" id="imageInput" accept="image/*">
+</div>
+
+<img id="preview">
+
+<button class="button" id="predictBtn" disabled>
+Predict From Image
+</button>
+
+<hr style="margin:35px 0">
+
+<h3 style="text-align:center">Live Camera Detection</h3>
+
+<div class="video-container">
+<video id="video" autoplay></video>
+<canvas id="output_canvas"></canvas>
+</div>
+
+<button class="button" onclick="toggleSkeleton()">Toggle Skeleton</button>
+
+<!-- <canvas id="capture_canvas" width="128" height="128" style="display:none"></canvas> -->
+<canvas id="capture_canvas" style="display:none"></canvas>
+<button class="button" onclick="captureFrame()">
+Predict From Camera
+</button>
+
+<button class="button" onclick="startPrediction()">
+Start Auto Prediction
+</button>
+
+<button class="button" onclick="stopPrediction()">
+Stop Prediction
+</button>
+
+<div class="loader" id="loader"></div>
+
+<div class="result-container" id="resultContainer">
+
+<div class="prediction" id="prediction">-</div>
+
+<div class="confidence" id="confidence"></div>
+
+<div class="top-3" id="top3"></div>
+
+<h3 style="margin-top:20px">Sentence Builder</h3>
+
+<div class="sentence-box" id="sentenceBox"></div>
+
+<div class="controls">
+<button onclick="addSpace()">SPACE</button>
+<button onclick="deleteLetter()">DELETE</button>
+<button onclick="clearSentence()">CLEAR</button>
+</div>
+
+</div>
+
+<div class="error" id="errorMessage"></div>
+
+</div>
+
+<script>
+
+let sentence=""
+let skeletonEnabled=true
+let predictionInterval=null
+
+const uploadArea=document.getElementById("uploadArea")
+const imageInput=document.getElementById("imageInput")
+const preview=document.getElementById("preview")
+const predictBtn=document.getElementById("predictBtn")
+
+const loader=document.getElementById("loader")
+const resultContainer=document.getElementById("resultContainer")
+const prediction=document.getElementById("prediction")
+const confidence=document.getElementById("confidence")
+const top3=document.getElementById("top3")
+const errorMessage=document.getElementById("errorMessage")
+const sentenceBox=document.getElementById("sentenceBox")
+
+uploadArea.addEventListener("click",()=>{imageInput.click()})
+
+imageInput.addEventListener("change",(e)=>{
+const file=e.target.files[0]
+if(!file) return
+preview.src=URL.createObjectURL(file)
+preview.style.display="block"
+predictBtn.disabled=false
+})
+
+predictBtn.addEventListener("click",async()=>{
+const file=imageInput.files[0]
+const formData=new FormData()
+formData.append("image",file)
+loader.style.display="block"
+
+try{
+const res=await fetch("/predict",{method:"POST",body:formData})
+const data=await res.json()
+showResult(data)
+}catch{showError("Prediction failed")}
+
+loader.style.display="none"
+})
+
+const video=document.getElementById("video")
+
+navigator.mediaDevices.getUserMedia({video:true})
+.then(stream=>{video.srcObject=stream})
+.catch(()=>{showError("Camera access denied")})
+
+const canvasElement=document.getElementById('output_canvas')
+const canvasCtx=canvasElement.getContext('2d')
+
+const hands=new Hands({
+locateFile:(file)=>{
+return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+}
+})
+
+hands.setOptions({
+maxNumHands:1,
+modelComplexity:1,
+minDetectionConfidence:0.7,
+minTrackingConfidence:0.5
+})
+
+hands.onResults(results=>{
+
+canvasCtx.save()
+canvasCtx.clearRect(0,0,canvasElement.width,canvasElement.height)
+
+canvasCtx.drawImage(results.image,0,0,
+canvasElement.width,canvasElement.height)
+
+if(results.multiHandLandmarks && skeletonEnabled){
+
+for(const landmarks of results.multiHandLandmarks){
+
+drawConnectors(canvasCtx,landmarks,HAND_CONNECTIONS,{color:'#00FF00',lineWidth:4})
+drawLandmarks(canvasCtx,landmarks,{color:'#FF0000',lineWidth:2})
+
+}
+
+}
+
+canvasCtx.restore()
+
+})
+
+const camera=new Camera(video,{
+onFrame:async()=>{await hands.send({image:video})},
+width:640,
+height:480
+})
+
+camera.start()
+
+function captureFrame(){
+
+const canvas=document.getElementById("capture_canvas")
+const ctx=canvas.getContext("2d")
+
+canvas.width = video.videoWidth
+canvas.height = video.videoHeight
+
+ctx.drawImage(video,0,0)
+
+canvas.toBlob(async function(blob){
+
+const formData=new FormData()
+formData.append("image",blob,"frame.jpg")
+
+loader.style.display="block"
+
+try{
+
+const res=await fetch("/predict",{method:"POST",body:formData})
+const data=await res.json()
+showResult(data)
+
+}catch{showError("Prediction failed")}
+
+loader.style.display="none"
+
+})
+
+}
+
+function showResult(data){
+
+prediction.innerText=data.prediction
+confidence.innerText="Confidence : "+data.confidence
+
+top3.innerHTML=data.top_3_predictions.map(p=>`
+<div class="top-item">
+<b>${p.label}</b><br>
+${p.confidence}
+</div>`).join("")
+
+sentence+=data.prediction
+sentenceBox.innerText=sentence
+
+resultContainer.style.display="block"
+
+}
+
+function addSpace(){
+sentence+=" "
+sentenceBox.innerText=sentence
+}
+
+function deleteLetter(){
+sentence=sentence.slice(0,-1)
+sentenceBox.innerText=sentence
+}
+
+function clearSentence(){
+sentence=""
+sentenceBox.innerText=""
+}
+
+function toggleSkeleton(){
+skeletonEnabled=!skeletonEnabled
+}
+
+function startPrediction(){
+
+if(predictionInterval) return
+
+predictionInterval=setInterval(()=>{
+captureFrame()
+},3000)
+
+}
+
+function stopPrediction(){
+
+clearInterval(predictionInterval)
+predictionInterval=null
+
+}
+
+function showError(msg){
+errorMessage.innerText=msg
+errorMessage.style.display="block"
+}
+
+</script>
+
+</body>
+</html>
